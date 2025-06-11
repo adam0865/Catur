@@ -4,3 +4,4 @@ cairosvg
 Pillow
 streamlit-image-coordinates
 requests
+tensorflow
