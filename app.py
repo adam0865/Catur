@@ -1,21 +1,18 @@
 # =========================================================================
-# SCRIPT UNTUK MENGUJI MODEL CATUR DALAM PERMAINAN SESUNGGUHNYA
+# APLIKASI WEB CATUR DENGAN STREAMLIT
 # =========================================================================
-#
 # Deskripsi:
-# Skrip ini mengintegrasikan model Keras yang telah Anda buat ke dalam
-# sebuah aplikasi catur interaktif di konsol.
+# Aplikasi ini memungkinkan pengguna bermain catur melawan AI yang menggunakan
+# model Keras (Value Network) yang telah Anda buat sebelumnya.
 #
 # Cara Menjalankan:
-# 1. Pastikan file model Anda (chess_ppo_model_console.weights.h5)
-#    berada di folder yang sama dengan skrip ini.
-# 2. Install library yang dibutuhkan:
-#    pip install tensorflow "python-chess==1.999"
-# 3. Jalankan skrip ini dari terminal:
-#    python nama_file_ini.py
+# 1. Pastikan file model 'chess_ppo_model_console.weights.h5' ada di folder ini.
+# 2. Jalankan dari terminal: streamlit run app.py
 #
 
+import streamlit as st
 import chess
+import chess.svg
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
@@ -24,33 +21,35 @@ from keras.layers import Dense, Flatten
 import os
 import time
 
+# --- Konfigurasi Halaman Streamlit ---
+st.set_page_config(page_title="Catur AI", layout="wide")
+
 # ========================
-# 1. Set Path dan Konstanta
+# 1. PATH MODEL DAN FUNGSI INTI (DARI SKRIP ANDA)
 # ========================
 MODEL_PATH = "chess_ppo_model_console.weights.h5"
 
-# ========================
-# 2. Fungsi Model dan Helper (Sesuai dengan kode Anda)
-# ========================
-def build_model():
+@st.cache_resource  # <-- Dekorator penting untuk performa!
+def load_keras_model():
     """
-    Fungsi ini SAMA PERSIS dengan yang Anda berikan.
-    Membangun arsitektur model Sequential.
+    Membangun arsitektur dan memuat bobot model.
+    Menggunakan cache Streamlit agar model tidak dimuat ulang setiap saat.
     """
+    if not os.path.exists(MODEL_PATH):
+        st.error(f"File model tidak ditemukan di path: {MODEL_PATH}")
+        st.stop()
+
     model = Sequential([
-        Flatten(input_shape=(8, 8, 12)),  # Input dari representasi papan
+        Flatten(input_shape=(8, 8, 12)),
         Dense(128, activation='relu'),
         Dense(64, activation='relu'),
-        Dense(1, activation='linear')    # Output skor untuk posisi papan
+        Dense(1, activation='linear')
     ])
-    # Kita tidak perlu compile model saat hanya ingin melakukan prediksi (inference)
+    model.load_weights(MODEL_PATH)
     return model
 
 def board_to_state(board: chess.Board) -> np.ndarray:
-    """
-    Mengonversi objek papan dari python-chess menjadi
-    representasi tensor (8, 8, 12) yang bisa dibaca oleh model Anda.
-    """
+    """Mengonversi papan catur menjadi state yang dapat dibaca model."""
     state = np.zeros((8, 8, 12), dtype=np.float32)
     piece_map = {
         (chess.PAWN, chess.WHITE): 0, (chess.KNIGHT, chess.WHITE): 1,
@@ -67,112 +66,103 @@ def board_to_state(board: chess.Board) -> np.ndarray:
             state[row, col, piece_map[(piece.piece_type, piece.color)]] = 1.0
     return state
 
-# ========================
-# 3. Logika AI untuk Memilih Langkah
-# ========================
 def get_ai_move(board: chess.Board, model: keras.Model) -> chess.Move:
-    """
-    Fungsi utama AI untuk memilih langkah terbaik.
-    """
+    """Logika AI untuk memilih langkah terbaik berdasarkan skor dari model."""
     legal_moves = list(board.legal_moves)
-    if not legal_moves:
-        return None
+    if not legal_moves: return None
 
     best_move = None
-    # Jika giliran AI adalah Putih (WHITE), ia mencari skor tertinggi.
-    # Jika giliran AI adalah Hitam (BLACK), ia mencari skor terendah.
-    best_score = -np.inf if board.turn == chess.WHITE else np.inf
+    # AI (Hitam) mencari skor terendah (posisi terbaik untuk Hitam)
+    best_score = np.inf 
 
-    # Iterasi melalui semua langkah yang legal
     for move in legal_moves:
-        # 1. Buat salinan papan dan coba lakukan langkah
         temp_board = board.copy()
         temp_board.push(move)
-
-        # 2. Ubah papan hasil langkah menjadi state untuk model
-        state = board_to_state(temp_board)
-        state = np.expand_dims(state, axis=0) # Tambah dimensi batch
-
-        # 3. Dapatkan skor dari model Anda
+        state = np.expand_dims(board_to_state(temp_board), axis=0)
         score = model.predict(state, verbose=0)[0][0]
-
-        # 4. Bandingkan skor untuk menemukan langkah terbaik
-        if board.turn == chess.WHITE: # AI (putih) ingin memaksimalkan skor
-            if score > best_score:
-                best_score = score
-                best_move = move
-        else: # AI (hitam) ingin meminimalkan skor
-            if score < best_score:
-                best_score = score
-                best_move = move
-
-    # Fallback jika tidak ada langkah yang dipilih (seharusnya tidak terjadi)
+        if score < best_score:
+            best_score = score
+            best_move = move
+            
     return best_move if best_move is not None else np.random.choice(legal_moves)
 
+
 # ========================
-# 4. Visualisasi dan Game Loop
+# 2. INISIALISASI STATE & UI STREAMLIT
 # ========================
-def visualize_board(board: chess.Board):
-    """Menampilkan papan catur dalam format teks yang mudah dibaca."""
-    print("\n  a b c d e f g h")
-    print(" +-----------------+")
-    for i in range(7, -1, -1):
-        print(f"{i+1}|", end=" ")
-        for j in range(8):
-            piece = board.piece_at(chess.square(j, i))
-            print(piece.symbol() if piece else ".", end=" ")
-        print(f"|{i+1}")
-    print(" +-----------------+")
-    print("  a b c d e f g h\n")
+st.title("♟️ Catur AI vs Manusia")
+st.markdown("Anda bermain sebagai **Putih**. AI bermain sebagai **Hitam**. Masukkan gerakan Anda dalam format UCI (contoh: `e2e4`).")
 
-def play_game(model: keras.Model):
-    """Loop utama untuk permainan interaktif."""
-    board = chess.Board()
-    print("=" * 40)
-    print("Selamat Datang! Anda akan bermain catur.")
-    print("Anda bermain sebagai PUTIH.")
-    print("Masukkan gerakan dalam notasi UCI (contoh: e2e4).")
-    print("=" * 40)
+# Memuat model AI
+ai_model = load_keras_model()
 
-    while not board.is_game_over():
-        visualize_board(board)
+# Menggunakan session_state untuk menyimpan kondisi permainan
+if "board" not in st.session_state:
+    st.session_state.board = chess.Board()
+if "last_move" not in st.session_state:
+    st.session_state.last_move = None
 
-        if board.turn == chess.WHITE: # Giliran Anda
-            move_uci = input("Giliran Anda (Putih). Masukkan langkah: ").strip()
+# Tata letak halaman menggunakan kolom
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.subheader("Papan Catur")
+    # Menampilkan papan catur sebagai gambar SVG
+    board_svg = chess.svg.board(
+        board=st.session_state.board, 
+        lastmove=st.session_state.last_move,
+        size=400
+    )
+    st.image(board_svg, use_column_width=True)
+
+    if st.button("Mulai Ulang Permainan"):
+        st.session_state.board = chess.Board()
+        st.session_state.last_move = None
+        st.rerun()
+
+# ========================
+# 3. LOGIKA PERMAINAN
+# ========================
+game_over = st.session_state.board.is_game_over()
+
+if game_over:
+    st.warning(f"**Permainan Selesai!** Hasil: {st.session_state.board.result()}")
+else:
+    # Giliran Manusia (Putih)
+    if st.session_state.board.turn == chess.WHITE:
+        with st.form("move_form"):
+            user_move_uci = st.text_input("Giliran Anda (Putih). Masukkan langkah (UCI):", placeholder="e.g., e2e4")
+            submitted = st.form_submit_button("Lakukan Gerakan")
+
+        if submitted and user_move_uci:
             try:
-                move = chess.Move.from_uci(move_uci)
-                if move in board.legal_moves:
-                    board.push(move)
+                move = chess.Move.from_uci(user_move_uci.strip())
+                if move in st.session_state.board.legal_moves:
+                    st.session_state.board.push(move)
+                    st.session_state.last_move = move
+                    st.rerun()
                 else:
-                    print(">>> LANGKAH TIDAK VALID! Coba lagi.")
+                    st.error("Langkah tidak valid!")
             except ValueError:
-                print(f">>> FORMAT '{move_uci}' SALAH! Gunakan notasi UCI.")
-        else: # Giliran AI
-            print("Giliran AI (Hitam). AI sedang berpikir...")
-            start_time = time.time()
-            ai_move = get_ai_move(board, model)
-            end_time = time.time()
-            print(f"AI memilih: {ai_move.uci()} (Waktu berpikir: {end_time - start_time:.2f} detik)")
-            if ai_move:
-                board.push(ai_move)
-
-    # Permainan Selesai
-    print("\n" + "="*30)
-    print("PERMAINAN SELESAI!")
-    visualize_board(board)
-    print(f"Hasil: {board.result()}")
-
-
-if _name_ == "_main_":
-    if not os.path.exists(MODEL_PATH):
-        print(f"Error: File model '{MODEL_PATH}' tidak ditemukan!")
-        print("Harap jalankan skrip pelatihan Anda terlebih dahulu untuk membuat file ini.")
+                st.error("Format langkah salah. Gunakan notasi UCI.")
+    
+    # Giliran AI (Hitam)
     else:
-        print("Model ditemukan. Memuat bobot...")
-        # Membangun dan memuat model Anda
-        game_model = build_model()
-        game_model.load_weights(MODEL_PATH)
-        print("Model berhasil dimuat. Siap bermain.")
-        
-        # Memulai permainan
-        play_game(game_model)
+        with st.spinner("AI (Hitam) sedang berpikir..."):
+            ai_move = get_ai_move(st.session_state.board, ai_model)
+            if ai_move:
+                st.session_state.board.push(ai_move)
+                st.session_state.last_move = ai_move
+                st.rerun()
+
+with col2:
+    st.subheader("Informasi Permainan")
+    turn_text = "Pemain (Putih)" if st.session_state.board.turn == chess.WHITE else "AI (Hitam)"
+    st.write(f"**Giliran:** {turn_text}")
+    
+    status_text = "Selesai" if game_over else "Berlangsung"
+    st.write(f"**Status:** {status_text}")
+
+    st.subheader("Riwayat Langkah (PGN)")
+    pgn_string = chess.Board().variation_san(st.session_state.board.move_stack)
+    st.text_area("Langkah", value=pgn_string, height=300, disabled=True)
