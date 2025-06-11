@@ -1,0 +1,6 @@
+streamlit
+python-chess
+cairosvg
+Pillow
+streamlit-image-coordinates
+requests
