@@ -1,7 +1,9 @@
 streamlit
+tensorflow-cpu
+numpy
+pandas
 python-chess
 cairosvg
 Pillow
 streamlit-image-coordinates
 requests
-tensorflow-cpu
