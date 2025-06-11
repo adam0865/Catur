@@ -1,5 +1,5 @@
 streamlit
-tensorflow-cpu
+tensorflow==2.12.0
 numpy
 pandas
 python-chess
